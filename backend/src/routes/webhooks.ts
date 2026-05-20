@@ -26,8 +26,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 router.get('/:webhookId', async (req: AuthRequest, res: Response) => {
   try {
     const { webhookId } = req.params;
-    const webhook = await prisma.webhook.findUnique({
-      where: { id: webhookId }
+    const webhook = await prisma.webhook.findFirst({
+      where: { id: webhookId, organizationId: req.user!.organizationId }
     });
 
     if (!webhook) {
@@ -88,8 +88,8 @@ router.put('/:webhookId', requireOwnerOrAdmin, async (req: AuthRequest, res: Res
   try {
     const { webhookId } = req.params;
     const { name, url, events, isActive } = req.body;
-    const existing = await prisma.webhook.findUnique({
-      where: { id: webhookId }
+    const existing = await prisma.webhook.findFirst({
+      where: { id: webhookId, organizationId: req.user!.organizationId }
     });
 
     if (!existing) {
@@ -118,6 +118,15 @@ router.put('/:webhookId', requireOwnerOrAdmin, async (req: AuthRequest, res: Res
 router.delete('/:webhookId', requireOwnerOrAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const { webhookId } = req.params;
+
+    const existing = await prisma.webhook.findFirst({
+      where: { id: webhookId, organizationId: req.user!.organizationId }
+    });
+
+    if (!existing) {
+      return res.status(404).json({ error: 'Webhook not found' });
+    }
+
     await prisma.webhook.delete({
       where: { id: webhookId }
     });
@@ -134,8 +143,17 @@ router.post('/:webhookId/regenerate-secret', requireOwnerOrAdmin, async (req: Au
   try {
     const { webhookId } = req.params;
 
+    const webhook = await prisma.webhook.findFirst({
+      where: { id: webhookId, organizationId: req.user!.organizationId }
+    });
+
+    if (!webhook) {
+      return res.status(404).json({ error: 'Webhook not found' });
+    }
+
     const newSecret = generateToken(32);
-    const webhook = await prisma.webhook.update({
+
+    await prisma.webhook.update({
       where: { id: webhookId },
       data: { secret: newSecret }
     });
@@ -298,16 +316,18 @@ router.post('/incoming/:webhookId', async (req: Request, res: Response) => {
     if (!webhook) {
       return res.status(404).json({ error: 'Webhook not found' });
     }
-    if (signature) {
-      const isValid = verifyWebhookSignature(
-        JSON.stringify(req.body),
-        signature,
-        webhook.secret
-      );
+    if (!signature) {
+      return res.status(401).json({ error: 'Signature required' });
+    }
 
-      if (!isValid) {
-        return res.status(401).json({ error: 'Invalid signature' });
-      }
+    const isValid = verifyWebhookSignature(
+      JSON.stringify(req.body),
+      signature,
+      webhook.secret
+    );
+
+    if (!isValid) {
+      return res.status(401).json({ error: 'Invalid signature' });
     }
 
     // Process incoming webhook

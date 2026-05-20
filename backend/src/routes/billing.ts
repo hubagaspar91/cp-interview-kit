@@ -270,8 +270,8 @@ router.get('/invoices', async (req: AuthRequest, res: Response) => {
 router.get('/invoices/:invoiceId', async (req: AuthRequest, res: Response) => {
   try {
     const { invoiceId } = req.params;
-    const invoice = await prisma.invoice.findUnique({
-      where: { id: invoiceId }
+    const invoice = await prisma.invoice.findFirst({
+      where: { id: invoiceId, organizationId: req.user!.organizationId }
     });
 
     if (!invoice) {
@@ -346,8 +346,6 @@ router.post('/payment-method', requireOwnerOrAdmin, async (req: AuthRequest, res
       where: { id: req.user!.organizationId },
       data: { stripeCustomerId: customerId }
     });
-    console.log(`Created payment method for org ${req.user!.organizationId}: ${cardToken}`);
-
     res.json({ customerId, message: 'Payment method added' });
   } catch (error) {
     console.error('Add payment method error:', error);

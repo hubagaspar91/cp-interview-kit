@@ -17,8 +17,12 @@ export function useWebSocket() {
 
   const connect = useCallback(() => {
     if (!organization) return;
+
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
     const ws = new WebSocket(
-      `ws://${window.location.hostname}:3001?org=${organization.id}`
+      `ws://${window.location.hostname}:3001?token=${token}`
     );
 
     ws.onopen = () => {

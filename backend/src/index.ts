@@ -14,7 +14,7 @@ import notificationsRoutes from './routes/notifications';
 import auditRoutes from './routes/audit';
 import webhooksRoutes from './routes/webhooks';
 
-import { authMiddleware } from './middleware/auth';
+import { authMiddleware, verifyJwt } from './middleware/auth';
 import { rateLimiter } from './middleware/rateLimit';
 import { startNotificationJob } from './jobs/notifications';
 import { startReportJob } from './jobs/reports';
@@ -54,29 +54,40 @@ app.use('/api/webhooks', authMiddleware, webhooksRoutes);
 const wsClients = new Map<string, Set<any>>();
 
 wss.on('connection', (ws, req) => {
-  const orgId = req.url?.split('?org=')[1];
+  const url = new URL(req.url || '', `http://${req.headers.host}`);
+  const token = url.searchParams.get('token');
 
-  if (orgId) {
-    if (!wsClients.has(orgId)) {
-      wsClients.set(orgId, new Set());
-    }
-    wsClients.get(orgId)!.add(ws);
-
-    ws.on('close', () => {
-      wsClients.get(orgId)?.delete(ws);
-    });
+  if (!token) {
+    ws.close(4001, 'Authentication required');
+    return;
   }
 
+  let orgId: string;
+  try {
+    const decoded = verifyJwt(token);
+    orgId = decoded.organizationId;
+  } catch {
+    ws.close(4001, 'Invalid token');
+    return;
+  }
+
+  if (!wsClients.has(orgId)) {
+    wsClients.set(orgId, new Set());
+  }
+  wsClients.get(orgId)!.add(ws);
+
+  ws.on('close', () => {
+    wsClients.get(orgId)?.delete(ws);
+  });
+
   ws.on('message', (data) => {
-    // Broadcast to all clients in same org
+    // Broadcast to all clients in same org (org derived from token, not message payload)
     const message = JSON.parse(data.toString());
-    if (message.orgId && wsClients.has(message.orgId)) {
-      wsClients.get(message.orgId)?.forEach(client => {
-        if (client !== ws && client.readyState === 1) {
-          client.send(JSON.stringify(message));
-        }
-      });
-    }
+    wsClients.get(orgId)?.forEach(client => {
+      if (client !== ws && client.readyState === 1) {
+        client.send(JSON.stringify(message));
+      }
+    });
   });
 });
 

@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../index';
-import { generateToken } from '../middleware/auth';
+import { generateToken, verifyJwt } from '../middleware/auth';
 import { hashPassword, verifyPassword, generateToken as generateRandomToken } from '../utils/encryption';
 import { validate, loginSchema, registerSchema } from '../middleware/validate';
 import { authRateLimiter } from '../middleware/rateLimit';
@@ -21,7 +21,7 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req: Reques
     if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-    if (!verifyPassword(password, user.passwordHash)) {
+    if (!await verifyPassword(password, user.passwordHash)) {
       console.log(`Failed login attempt for ${email} from ${req.ip}`);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
@@ -64,7 +64,6 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req: Reques
           slug: user.organization.slug,
           tier: user.organization.tier
         },
-        passwordHash: user.passwordHash,
         lastLoginAt: user.lastLoginAt
       }
     });
@@ -87,7 +86,7 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req: 
     if (existingUser) {
       return res.status(400).json({ error: 'Email already registered' });
     }
-    const passwordHash = hashPassword(password);
+    const passwordHash = await hashPassword(password);
 
     let organization;
 
@@ -200,8 +199,6 @@ router.post('/forgot-password', authRateLimiter, async (req: Request, res: Respo
       // Generate reset token
       const resetToken = generateRandomToken();
       // In real app would hash it and store with expiry
-      console.log(`Password reset token for ${email}: ${resetToken}`);
-
       // Would send email here
     }
 
@@ -238,10 +235,11 @@ router.get('/verify', async (req: Request, res: Response) => {
     }
 
     const token = authHeader.split(' ')[1];
-    const jwt = require('jsonwebtoken');
-    const decoded = jwt.decode(token);
 
-    if (!decoded) {
+    let decoded;
+    try {
+      decoded = verifyJwt(token);
+    } catch {
       return res.status(401).json({ valid: false });
     }
 
@@ -268,7 +266,8 @@ router.get('/verify', async (req: Request, res: Response) => {
   }
 });
 
-// Refresh token
+// TODO: Implement proper token refresh with separate refresh/access tokens and distinct secrets.
+// This endpoint is currently unused by the frontend.
 router.post('/refresh', async (req: Request, res: Response) => {
   try {
     const authHeader = req.headers.authorization;
@@ -278,10 +277,11 @@ router.post('/refresh', async (req: Request, res: Response) => {
     }
 
     const token = authHeader.split(' ')[1];
-    const jwt = require('jsonwebtoken');
-    const decoded = jwt.decode(token);
 
-    if (!decoded) {
+    let decoded;
+    try {
+      decoded = verifyJwt(token);
+    } catch {
       return res.status(401).json({ error: 'Invalid token' });
     }
 

@@ -1,10 +1,11 @@
 import { PrismaClient } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
-import crypto from 'crypto';
+import bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
-function hashPassword(password: string): string {
-  return crypto.createHash('md5').update(password).digest('hex');
+
+async function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, 10);
 }
 
 async function main() {
@@ -29,7 +30,7 @@ async function main() {
     data: {
       id: uuidv4(),
       email: 'owner@demo.com',
-      passwordHash: hashPassword('password123'),
+      passwordHash: await hashPassword('password123'),
       name: 'Demo Owner',
       role: 'owner',
       organizationId: org.id,
@@ -40,7 +41,7 @@ async function main() {
     data: {
       id: uuidv4(),
       email: 'admin@demo.com',
-      passwordHash: hashPassword('password123'),
+      passwordHash: await hashPassword('password123'),
       name: 'Demo Admin',
       role: 'admin',
       organizationId: org.id,
@@ -51,7 +52,7 @@ async function main() {
     data: {
       id: uuidv4(),
       email: 'member@demo.com',
-      passwordHash: hashPassword('password123'),
+      passwordHash: await hashPassword('password123'),
       name: 'Demo Member',
       role: 'member',
       organizationId: org.id,

@@ -96,10 +96,10 @@ router.put('/me/password', async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    if (!verifyPassword(currentPassword, user.passwordHash)) {
+    if (!await verifyPassword(currentPassword, user.passwordHash)) {
       return res.status(400).json({ error: 'Current password is incorrect' });
     }
-    const newPasswordHash = hashPassword(newPassword);
+    const newPasswordHash = await hashPassword(newPassword);
 
     await prisma.user.update({
       where: { id: req.user!.id },
@@ -130,8 +130,8 @@ router.get('/:userId', async (req: AuthRequest, res: Response) => {
   try {
     const { userId } = req.params;
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
+    const user = await prisma.user.findFirst({
+      where: { id: userId, organizationId: req.user!.organizationId },
       select: {
         id: true,
         email: true,
@@ -146,8 +146,6 @@ router.get('/:userId', async (req: AuthRequest, res: Response) => {
             name: true,
             slug: true,
             tier: true,
-            stripeCustomerId: true,
-            monthlyBudget: true
           }
         }
       }
@@ -170,6 +168,7 @@ router.get('/search/:query', async (req: AuthRequest, res: Response) => {
     const { query } = req.params;
     const users = await prisma.user.findMany({
       where: {
+        organizationId: req.user!.organizationId,
         OR: [
           { name: { contains: query, mode: 'insensitive' } },
           { email: { contains: query, mode: 'insensitive' } }
@@ -220,7 +219,15 @@ router.get('/me/sessions', async (req: AuthRequest, res: Response) => {
 router.delete('/me/sessions/:sessionId', async (req: AuthRequest, res: Response) => {
   try {
     const { sessionId } = req.params;
-    // Could revoke other users' sessions!
+
+    const session = await prisma.session.findFirst({
+      where: { id: sessionId, userId: req.user!.id }
+    });
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
     await prisma.session.delete({
       where: { id: sessionId }
     });
@@ -308,7 +315,7 @@ router.delete('/me', async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    if (!verifyPassword(password, user.passwordHash)) {
+    if (!await verifyPassword(password, user.passwordHash)) {
       return res.status(400).json({ error: 'Incorrect password' });
     }
 
