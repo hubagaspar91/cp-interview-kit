@@ -298,16 +298,18 @@ router.post('/incoming/:webhookId', async (req: Request, res: Response) => {
     if (!webhook) {
       return res.status(404).json({ error: 'Webhook not found' });
     }
-    if (signature) {
-      const isValid = verifyWebhookSignature(
-        JSON.stringify(req.body),
-        signature,
-        webhook.secret
-      );
+    if (!signature) {
+      return res.status(401).json({ error: 'Signature required' });
+    }
 
-      if (!isValid) {
-        return res.status(401).json({ error: 'Invalid signature' });
-      }
+    const isValid = verifyWebhookSignature(
+      JSON.stringify(req.body),
+      signature,
+      webhook.secret
+    );
+
+    if (!isValid) {
+      return res.status(401).json({ error: 'Invalid signature' });
     }
 
     // Process incoming webhook

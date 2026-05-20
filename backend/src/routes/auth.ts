@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../index';
-import { generateToken } from '../middleware/auth';
+import { generateToken, verifyJwt } from '../middleware/auth';
 import { hashPassword, verifyPassword, generateToken as generateRandomToken } from '../utils/encryption';
 import { validate, loginSchema, registerSchema } from '../middleware/validate';
 import { authRateLimiter } from '../middleware/rateLimit';
@@ -235,10 +235,11 @@ router.get('/verify', async (req: Request, res: Response) => {
     }
 
     const token = authHeader.split(' ')[1];
-    const jwt = require('jsonwebtoken');
-    const decoded = jwt.decode(token);
 
-    if (!decoded) {
+    let decoded;
+    try {
+      decoded = verifyJwt(token);
+    } catch {
       return res.status(401).json({ valid: false });
     }
 
@@ -265,7 +266,8 @@ router.get('/verify', async (req: Request, res: Response) => {
   }
 });
 
-// Refresh token
+// TODO: Implement proper token refresh with separate refresh/access tokens and distinct secrets.
+// This endpoint is currently unused by the frontend.
 router.post('/refresh', async (req: Request, res: Response) => {
   try {
     const authHeader = req.headers.authorization;
@@ -275,10 +277,11 @@ router.post('/refresh', async (req: Request, res: Response) => {
     }
 
     const token = authHeader.split(' ')[1];
-    const jwt = require('jsonwebtoken');
-    const decoded = jwt.decode(token);
 
-    if (!decoded) {
+    let decoded;
+    try {
+      decoded = verifyJwt(token);
+    } catch {
       return res.status(401).json({ error: 'Invalid token' });
     }
 
