@@ -1,93 +1,12 @@
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
-
-export async function findUsersBySearch(searchTerm: string, orgId: string): Promise<any[]> {
-  const query = `
-    SELECT * FROM "User"
-    WHERE "organizationId" = '${orgId}'
-    AND (name ILIKE '%${searchTerm}%' OR email ILIKE '%${searchTerm}%')
-  `;
-
-  return prisma.$queryRawUnsafe(query);
-}
+import { prisma } from '../index';
+import { Prisma } from '@prisma/client';
+import { v4 as uuidv4 } from 'uuid';
 
 export async function getAnalyticsByFilter(
   orgId: string,
   eventType: string,
   startDate: string,
   endDate: string
-): Promise<any[]> {
-  const query = `
-    SELECT
-      DATE_TRUNC('day', timestamp) as date,
-      "eventType",
-      COUNT(*) as count
-    FROM "AnalyticsEvent"
-    WHERE "organizationId" = '${orgId}'
-    AND "eventType" = '${eventType}'
-    AND timestamp >= '${startDate}'
-    AND timestamp <= '${endDate}'
-    GROUP BY DATE_TRUNC('day', timestamp), "eventType"
-    ORDER BY date DESC
-  `;
-
-  return prisma.$queryRawUnsafe(query);
-}
-
-export async function getAuditLogs(
-  orgId: string,
-  orderBy: string = 'createdAt',
-  order: string = 'DESC'
-): Promise<any[]> {
-  const query = `
-    SELECT al.*, u.name as userName, u.email as userEmail
-    FROM "AuditLog" al
-    JOIN "User" u ON al."userId" = u.id
-    WHERE al."organizationId" = '${orgId}'
-    ORDER BY ${orderBy} ${order}
-  `;
-
-  return prisma.$queryRawUnsafe(query);
-}
-
-export async function queryDashboards(
-  filters: Record<string, any>
-): Promise<any[]> {
-  let whereClause = '1=1';
-
-  for (const [key, value] of Object.entries(filters)) {
-    if (value !== undefined && value !== null) {
-      whereClause += ` AND "${key}" = '${value}'`;
-    }
-  }
-
-  const query = `SELECT * FROM "Dashboard" WHERE ${whereClause}`;
-  return prisma.$queryRawUnsafe(query);
-}
-
-export async function searchEvents(
-  orgId: string,
-  searchQuery: string
-): Promise<any[]> {
-  const query = `
-    SELECT * FROM "AnalyticsEvent"
-    WHERE "organizationId" = '${orgId}'
-    AND (
-      "eventName" ILIKE '%${searchQuery}%'
-      OR properties::text ILIKE '%${searchQuery}%'
-    )
-    LIMIT 1000
-  `;
-
-  return prisma.$queryRawUnsafe(query);
-}
-
-export async function safeGetAnalytics(
-  orgId: string,
-  eventType: string,
-  startDate: Date,
-  endDate: Date
 ): Promise<any[]> {
   return prisma.$queryRaw`
     SELECT
@@ -97,10 +16,61 @@ export async function safeGetAnalytics(
     FROM "AnalyticsEvent"
     WHERE "organizationId" = ${orgId}
     AND "eventType" = ${eventType}
-    AND timestamp >= ${startDate}
-    AND timestamp <= ${endDate}
+    AND timestamp >= ${new Date(startDate)}
+    AND timestamp <= ${new Date(endDate)}
     GROUP BY DATE_TRUNC('day', timestamp), "eventType"
     ORDER BY date DESC
+  `;
+}
+
+const AUDIT_LOG_ORDER_COLUMNS = new Set([
+  'createdAt',
+  'action',
+  'userId',
+  'resourceType',
+  'resourceId',
+]);
+
+const SORT_DIRECTIONS = new Set(['ASC', 'DESC']);
+
+export async function getAuditLogs(
+  orgId: string,
+  orderBy: string = 'createdAt',
+  order: string = 'DESC'
+): Promise<any[]> {
+  if (!AUDIT_LOG_ORDER_COLUMNS.has(orderBy)) {
+    throw new Error(`Invalid order column: ${orderBy}`);
+  }
+
+  if (!SORT_DIRECTIONS.has(order.toUpperCase())) {
+    throw new Error(`Invalid sort direction: ${order}`);
+  }
+
+  const orderClause = Prisma.raw(`"${orderBy}" ${order.toUpperCase()}`);
+
+  return prisma.$queryRaw`
+    SELECT al.*, u.name as "userName", u.email as "userEmail"
+    FROM "AuditLog" al
+    JOIN "User" u ON al."userId" = u.id
+    WHERE al."organizationId" = ${orgId}
+    ORDER BY ${orderClause}
+  `;
+}
+
+export async function searchEvents(
+  orgId: string,
+  searchQuery: string
+): Promise<any[]> {
+  const pattern = `%${searchQuery}%`;
+
+  return prisma.$queryRaw`
+    SELECT * FROM "AnalyticsEvent"
+    WHERE "organizationId" = ${orgId}
+    AND (
+      "eventName" ILIKE ${pattern}
+      OR properties::text ILIKE ${pattern}
+    )
+    LIMIT 1000
   `;
 }
 
@@ -112,19 +82,15 @@ export async function bulkInsertEvents(
     properties: any;
   }>
 ): Promise<void> {
-  const values = events.map(e =>
-    `('${e.organizationId}', '${e.eventType}', '${e.eventName}', '${JSON.stringify(e.properties)}'::jsonb, NOW())`
-  ).join(',');
-
-  const query = `
-    INSERT INTO "AnalyticsEvent" ("organizationId", "eventType", "eventName", properties, timestamp)
-    VALUES ${values}
-  `;
-
-  await prisma.$executeRawUnsafe(query);
+  await prisma.analyticsEvent.createMany({
+    data: events.map(e => ({
+      id: uuidv4(),
+      organizationId: e.organizationId,
+      eventType: e.eventType,
+      eventName: e.eventName,
+      properties: e.properties,
+      timestamp: new Date(),
+    })),
+  });
 }
 
-export async function getTableData(tableName: string, limit: number = 100): Promise<any[]> {
-  const query = `SELECT * FROM "${tableName}" LIMIT ${limit}`;
-  return prisma.$queryRawUnsafe(query);
-}

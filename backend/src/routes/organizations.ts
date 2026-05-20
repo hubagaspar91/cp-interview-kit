@@ -194,7 +194,7 @@ router.put('/members/:memberId', requireOwnerOrAdmin, async (req: AuthRequest, r
       where: { id: memberId }
     });
 
-    if (!member) {
+    if (!member || member.organizationId !== req.user!.organizationId) {
       return res.status(404).json({ error: 'Member not found' });
     }
 
@@ -266,7 +266,10 @@ router.delete('/members/:memberId', requireOwnerOrAdmin, async (req: AuthRequest
     if (!member) {
       return res.status(404).json({ error: 'Member not found' });
     }
-    // Can delete users from other organizations
+
+    if (member.organizationId !== req.user!.organizationId) {
+      return res.status(404).json({ error: 'Member not found' });
+    }
 
     // Can't delete yourself
     if (memberId === req.user!.id) {
@@ -400,6 +403,15 @@ router.post('/api-keys', requireOwnerOrAdmin, async (req: AuthRequest, res: Resp
 router.delete('/api-keys/:keyId', requireOwnerOrAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const { keyId } = req.params;
+
+    const apiKey = await prisma.apiKey.findFirst({
+      where: { id: keyId, organizationId: req.user!.organizationId }
+    });
+
+    if (!apiKey) {
+      return res.status(404).json({ error: 'API key not found' });
+    }
+
     await prisma.apiKey.update({
       where: { id: keyId },
       data: { isActive: false }
@@ -489,8 +501,8 @@ router.post('/transfer-ownership', requireOwner, async (req: AuthRequest, res: R
       return res.status(401).json({ error: 'Invalid password' });
     }
 
-    const newOwner = await prisma.user.findUnique({
-      where: { id: newOwnerId }
+    const newOwner = await prisma.user.findFirst({
+      where: { id: newOwnerId, organizationId: req.user!.organizationId }
     });
 
     if (!newOwner) {

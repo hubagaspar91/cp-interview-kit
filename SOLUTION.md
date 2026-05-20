@@ -83,3 +83,15 @@ Implications: anyone could post any data to any webhookId without authentication
 ### Webhook signature verification
 
 Much less critical, but low-hanging and closely connected to webhook auth, so it made sense to add here. The attack surface is small and resource-intensive to exploit ([https://en.wikipedia.org/wiki/Timing_attack](https://en.wikipedia.org/wiki/Timing_attack)), but the fix was simple and relevant.
+
+## Data scoping and tenant isolation
+
+### Tenant isolation
+
+There were many cases in the codebase of tenant isolation issues - one user being able to access/mutate records from another user/org. I've fixed the most apparent ones across all backend controllers - making sure, that every user can only access data meant for their own user/org. The most fool-proof long-term solution would be enforcing tenant isolation at the Postgres level via Row-Level Security policies.
+
+### SQLi angle
+
+This is technically not (only) a tenant isolation issue, but an input validation and general data safety problem, nevertheless, it felt right to bundle it here, due to the severity, and the fact that it can very well leak data between tenants - and do much more. The general solution here was to replace `queryRawUnsafe` with `queryRaw`, that doesn't just blindly concatenate query strings, but uses parametrized queries, therefore eliminating the injection angle.
+
+While sweeping `backend/src/utils/db.ts` I also audited which of the helpers were actually called. Four of them had no callers anywhere in the codebase and were deleted rather than kept around: `findUsersBySearch` and `queryDashboards` (both unsafe in the original), `getTableData` (also unsafe in the original — would have been hardened for nothing), and `safeGetAnalytics` (was already safe in the original but never wired up). Same precedent as the dead crypto removal in the credentials commit — unreachable code is a footgun for the next dev to wire up, especially when it deals with raw SQL.
