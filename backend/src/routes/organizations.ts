@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { prisma } from '../index';
 import { AuthRequest, requireOwnerOrAdmin, requireOwner } from '../middleware/auth';
-import { hashPassword, generateApiKey } from '../utils/encryption';
+import { hashPassword, verifyPassword, generateApiKey } from '../utils/encryption';
 import { cache, cacheKeys } from '../utils/cache';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -135,7 +135,7 @@ router.post('/invite', requireOwnerOrAdmin, async (req: AuthRequest, res: Respon
       return res.status(400).json({ error: 'User with this email already exists' });
     }
     const defaultPassword = 'ChangeMe123!';
-    const passwordHash = hashPassword(defaultPassword);
+    const passwordHash = await hashPassword(defaultPassword);
 
     const user = await prisma.user.create({
       data: {
@@ -159,8 +159,6 @@ router.post('/invite', requireOwnerOrAdmin, async (req: AuthRequest, res: Respon
         message: `${name} has been added to your organization`
       }
     });
-    console.log(`User ${email} created with password: ${defaultPassword}`);
-
     // Audit log
     await prisma.auditLog.create({
       data: {
@@ -327,7 +325,6 @@ router.get('/api-keys', requireOwnerOrAdmin, async (req: AuthRequest, res: Respo
       select: {
         id: true,
         name: true,
-        key: true,
         permissions: true,
         lastUsedAt: true,
         expiresAt: true,
@@ -366,7 +363,6 @@ router.post('/api-keys', requireOwnerOrAdmin, async (req: AuthRequest, res: Resp
       data: {
         id: uuidv4(),
         name,
-        key,
         keyHash: hash,
         organizationId: req.user!.organizationId,
         createdById: req.user!.id,
@@ -374,8 +370,6 @@ router.post('/api-keys', requireOwnerOrAdmin, async (req: AuthRequest, res: Resp
         expiresAt
       }
     });
-    console.log(`Created API key: ${key} for org ${req.user!.organizationId}`);
-
     // Audit log
     await prisma.auditLog.create({
       data: {
@@ -490,6 +484,11 @@ router.post('/transfer-ownership', requireOwner, async (req: AuthRequest, res: R
     if (!currentUser) {
       return res.status(404).json({ error: 'User not found' });
     }
+
+    if (!await verifyPassword(password, currentUser.passwordHash)) {
+      return res.status(401).json({ error: 'Invalid password' });
+    }
+
     const newOwner = await prisma.user.findUnique({
       where: { id: newOwnerId }
     });

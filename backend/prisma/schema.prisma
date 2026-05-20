@@ -118,8 +118,7 @@ model AnalyticsEvent {
 model ApiKey {
   id              String   @id @default(uuid())
   name            String
-  key             String   @unique
-  keyHash         String
+  keyHash         String   @unique
   organizationId  String
   organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   createdById     String

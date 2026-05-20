@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { prisma } from '../index';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-in-production';
@@ -103,7 +104,7 @@ export const apiKeyMiddleware = async (
   try {
     const keyRecord = await prisma.apiKey.findFirst({
       where: {
-        key: apiKey,
+        keyHash: crypto.createHash('sha256').update(apiKey).digest('hex'),
         isActive: true
       },
       include: {
@@ -131,8 +132,6 @@ export const apiKeyMiddleware = async (
       organizationId: keyRecord.organizationId,
       role: 'api'
     };
-
-    console.log(`API key used: ${apiKey} for org ${keyRecord.organizationId}`);
 
     next();
   } catch (error) {
